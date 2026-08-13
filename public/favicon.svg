@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="International Student Courses">
+  <rect width="64" height="64" rx="12" fill="#0F6E6E"/>
+  <!-- A mortarboard over a price rule: a qualification with a number attached. -->
+  <path d="M32 14 L56 24 L32 34 L8 24 Z" fill="#FBFAF7"/>
+  <path d="M18 28.5 V38 c0 4.5 6.6 7.5 14 7.5 s14 -3 14 -7.5 V28.5 L32 36 Z" fill="#C3E0DA"/>
+  <rect x="12" y="50" width="40" height="4" rx="2" fill="#C2691A"/>
+  <circle cx="24" cy="52" r="4.6" fill="#FBFAF7" stroke="#C2691A" stroke-width="2.4"/>
+</svg>

@@ -1,0 +1,72 @@
+name: Data Pipeline
+
+on:
+  schedule:
+    # SOURCE CADENCE: the Department of Education refreshes the CRICOS bulk
+    # export and publishes one new dated snapshot each month, around the 1st.
+    # Monthly is therefore proportional to the source, and it is also the
+    # fastest cron this fleet allows. Day 9 at 03:41 UTC, staggered so this
+    # repo does not fire at the same moment as the others.
+    - cron: '41 3 9 * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['pipeline/**']
+
+permissions:
+  contents: write
+  # Needed to start the deploy workflow by hand — see the last step for why.
+  actions: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    # A cold run backfills 60 monthly workbooks (~270 MB) as well as the ABS
+    # boundary file. Warm runs fetch one new snapshot.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # `npm install`, NOT `npm ci`: mapshaper is needed to simplify the ABS
+      # shapefile, and a lockfile-only install has failed on CI before for
+      # exactly this class of dependency.
+      - run: npm install --no-audit --no-fund
+      - run: node pipeline/collect.mjs
+      - run: node pipeline/aggregate.mjs
+      # The gates run against the artefacts that would ship. A failure exits
+      # non-zero and nothing is committed.
+      - run: node pipeline/gates.mjs
+      - name: Commit data
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # public/data is WHOLLY REGENERATED every run, so there is nothing to
+          # merge: `git pull --rebase` just produces conflicts in generated JSON
+          # the moment two runs overlap. Rebase the fresh artefacts onto
+          # whatever main is now. pipeline/snapshots is append-only and is
+          # committed too, so the 60-file backfill happens exactly once.
+          git fetch origin main
+          git reset --soft origin/main
+          git add public/data/ pipeline/snapshots/
+          if git diff --cached --quiet; then
+            echo "data unchanged"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git commit -m "Update data $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push origin HEAD:main
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      # A push made with GITHUB_TOKEN does NOT trigger other workflows — that is
+      # GitHub's loop prevention, and it silently makes this whole job pointless:
+      # the pipeline commits fresh data every run, the job goes green, and the
+      # deploy never fires, so the site keeps serving whatever a human last
+      # pushed. Start the deploy explicitly.
+      - name: Deploy the new data
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref main
